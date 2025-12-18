@@ -3,6 +3,8 @@ import asyncio
 from discord.ext import commands
 from discord.ui import View, Modal, TextInput
 
+print("🔥 TICKETS.PY KORTE CARREGADO 🔥")
+
 CARGO_INICIAL = "aviãozinho"
 CARGO_FINAL = "membro"
 TEMPO_APAGAR_RECUSADO = 36000  # 10 horas
@@ -109,7 +111,7 @@ class EntregaView(View):
 # ================== MODAL ==================
 class EntregaModal(Modal):
     def __init__(self, meta, canal_abertos, canal_aceitos, canal_recusados):
-        super().__init__(title="Entrega de Farm")
+        super().__init__(title="Entrega de Farm KORTE")
         self.meta = meta
         self.canal_abertos = canal_abertos
         self.canal_aceitos = canal_aceitos
@@ -124,7 +126,6 @@ class EntregaModal(Modal):
         self.add_item(self.primeiro_farm)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # 🔥 CORREÇÃO PRINCIPAL (remove o erro "algo deu errado")
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -145,7 +146,7 @@ class EntregaModal(Modal):
         }
 
         embed = discord.Embed(
-            title="📦 Nova Entrega para Aprovação",
+            title="📦 Nova Entrega para Aprovação — KORTE",
             color=discord.Color.orange()
         )
         embed.add_field(name="Usuário", value=interaction.user.mention, inline=False)
@@ -163,7 +164,7 @@ class EntregaModal(Modal):
         view.mensagem_original = msg
 
         aviso = await interaction.followup.send(
-            "📨 **Entrega enviada para aprovação da staff.**"
+            "📨 **Entrega enviada para aprovação da staff (KORTE).**"
         )
         await asyncio.sleep(5)
         await aviso.delete()
@@ -178,7 +179,7 @@ class TicketView(View):
         self.canal_aceitos = canal_aceitos
         self.canal_recusados = canal_recusados
 
-    @discord.ui.button(label="📦 ENTREGAR FARM", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="📦 ENTREGAR FARM KORTE", style=discord.ButtonStyle.green)
     async def entregar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(
             EntregaModal(
@@ -206,8 +207,8 @@ class Tickets(commands.Cog):
         canal_recusados: discord.TextChannel
     ):
         embed = discord.Embed(
-            title="🎫 TICKET ENTREGA DE FARM KORTE",
-            description="Clique no botão abaixo para registrar sua entrega.",
+            title="🎫 TICKET — ENTREGA DE FARM KORTE",
+            description="Clique no botão abaixo para registrar sua **entrega de farm KORTE**.",
             color=discord.Color.blurple()
         )
 
