@@ -206,7 +206,7 @@ class Tickets(commands.Cog):
         canal_recusados: discord.TextChannel
     ):
         embed = discord.Embed(
-            title="🎫 TICKET ENTREGA DE FARM FXP",
+            title="🎫 TICKET ENTREGA DE FARM KORTE",
             description="Clique no botão abaixo para registrar sua entrega.",
             color=discord.Color.blurple()
         )
