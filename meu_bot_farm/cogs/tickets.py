@@ -1,5 +1,7 @@
 import discord
 import asyncio
+import json
+import os
 from discord.ext import commands
 from discord.ui import View, Modal, TextInput
 
@@ -7,10 +9,52 @@ print("🔥 TICKETS.PY KORTE CARREGADO 🔥")
 
 CARGO_INICIAL = "aviãozinho"
 CARGO_FINAL = "membro"
-TEMPO_APAGAR_RECUSADO = 36000  # 10 horas
+TEMPO_APAGAR_RECUSADO = 36000  # 10h
+
+ARQUIVO_HISTORICO = "meu_bot_farm/data/historico.json"
 
 
-# ================== VIEW DE APROVAÇÃO (STAFF) ==================
+# ================== HISTÓRICO ==================
+def carregar_historico():
+    if not os.path.exists(ARQUIVO_HISTORICO):
+        with open(ARQUIVO_HISTORICO, "w", encoding="utf-8") as f:
+            json.dump({}, f, indent=4)
+
+    with open(ARQUIVO_HISTORICO, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def salvar_historico(dados):
+    with open(ARQUIVO_HISTORICO, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
+
+
+def registrar_historico(user_id, aceito, primeiro_farm):
+    historico = carregar_historico()
+    uid = str(user_id)
+
+    if uid not in historico:
+        historico[uid] = {
+            "total_entregas": 0,
+            "aceitos": 0,
+            "recusados": 0,
+            "primeiro_farm": False
+        }
+
+    historico[uid]["total_entregas"] += 1
+
+    if aceito:
+        historico[uid]["aceitos"] += 1
+    else:
+        historico[uid]["recusados"] += 1
+
+    if primeiro_farm:
+        historico[uid]["primeiro_farm"] = True
+
+    salvar_historico(historico)
+
+
+# ================== VIEW DE APROVAÇÃO ==================
 class EntregaView(View):
     def __init__(self, member, dados, canal_aceitos, canal_recusados):
         super().__init__(timeout=None)
@@ -20,87 +64,80 @@ class EntregaView(View):
         self.canal_recusados = canal_recusados
         self.mensagem_original = None
 
-    def gerar_embed_final(self, promovido: bool):
+    def embed_final(self, promovido):
         embed = discord.Embed(
-            title="📦 Entrega Avaliada",
-            color=discord.Color.green() if self.dados["meta_concluida"] else discord.Color.orange()
+            title="📦 Entrega Finalizada",
+            color=discord.Color.green()
         )
 
-        embed.add_field(name="👤 Usuário que entregou", value=self.member.mention, inline=False)
-        embed.add_field(name="📥 Entregue para", value=self.dados["entregue_para"], inline=False)
-        embed.add_field(name="📦 Quantidade", value=str(self.dados["quantidade"]), inline=True)
-        embed.add_field(
-            name="🆕 Primeiro farm",
-            value="Sim" if self.dados["primeiro_farm"] else "Não",
-            inline=True
-        )
+        embed.add_field(name="👤 Usuário", value=self.member.mention, inline=False)
+        embed.add_field(name="📦 Quantidade", value=self.dados["quantidade"], inline=True)
+        embed.add_field(name="🆕 Primeiro Farm", value="Sim" if self.dados["primeiro_farm"] else "Não", inline=True)
 
         if self.dados["meta_concluida"]:
-            embed.add_field(name="🎯 Status da Meta", value="✅ Meta concluída", inline=False)
+            embed.add_field(name="🎯 Meta", value="✅ Concluída", inline=False)
         else:
             embed.add_field(
-                name="🎯 Status da Meta",
-                value=f"⚠️ Faltam **{self.dados['faltante']}** para concluir",
+                name="🎯 Meta",
+                value=f"⚠️ Faltam {self.dados['faltante']}",
                 inline=False
             )
 
         if promovido:
             embed.add_field(
-                name="🔼 Observação",
-                value=f"{self.member.mention} foi **promovido para membro** 🎉",
+                name="🔼 Promoção",
+                value="Usuário promovido para **membro** 🎉",
                 inline=False
             )
 
         return embed
 
     @discord.ui.button(label="✅ Autorizar Entrega", style=discord.ButtonStyle.success)
-    async def autorizar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
+    async def autorizar(self, interaction: discord.Interaction, _):
+        await interaction.response.defer(ephemeral=True)
 
         if self.mensagem_original:
             await self.mensagem_original.delete()
 
-        guild = interaction.guild
         promovido = False
+        guild = interaction.guild
 
-        if self.dados["primeiro_farm"]:
-            cargo_inicial = discord.utils.get(guild.roles, name=CARGO_INICIAL)
-            cargo_final = discord.utils.get(guild.roles, name=CARGO_FINAL)
+        # PROMOÇÃO SÓ SE: primeiro farm + meta concluída
+        if self.dados["primeiro_farm"] and self.dados["meta_concluida"]:
+            cargo_i = discord.utils.get(guild.roles, name=CARGO_INICIAL)
+            cargo_f = discord.utils.get(guild.roles, name=CARGO_FINAL)
 
-            if cargo_inicial and cargo_inicial in self.member.roles:
-                await self.member.remove_roles(cargo_inicial)
-            if cargo_final:
-                await self.member.add_roles(cargo_final)
+            if cargo_i and cargo_i in self.member.roles:
+                await self.member.remove_roles(cargo_i)
+            if cargo_f:
+                await self.member.add_roles(cargo_f)
 
             promovido = True
 
-        embed = self.gerar_embed_final(promovido)
-        await self.canal_aceitos.send(embed=embed)
+        registrar_historico(self.member.id, True, self.dados["primeiro_farm"])
 
-        aviso = await interaction.channel.send("✅ **Entrega analisada com sucesso.**")
-        await asyncio.sleep(6)
-        await aviso.delete()
+        await self.canal_aceitos.send(embed=self.embed_final(promovido))
+        await interaction.followup.send("✅ Entrega autorizada.", ephemeral=True)
 
         self.stop()
 
     @discord.ui.button(label="❌ Recusar Entrega", style=discord.ButtonStyle.danger)
-    async def recusar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
+    async def recusar(self, interaction: discord.Interaction, _):
+        await interaction.response.defer(ephemeral=True)
 
         if self.mensagem_original:
             await self.mensagem_original.delete()
 
+        registrar_historico(self.member.id, False, self.dados["primeiro_farm"])
+
         embed = discord.Embed(
-            title="📦 Entrega Recusada",
-            description=f"{self.member.mention} teve a entrega **recusada** ❌",
+            title="❌ Entrega Recusada",
+            description=self.member.mention,
             color=discord.Color.red()
         )
 
         msg = await self.canal_recusados.send(embed=embed)
-
-        aviso = await interaction.channel.send("❌ **Entrega analisada com sucesso.**")
-        await asyncio.sleep(6)
-        await aviso.delete()
+        await interaction.followup.send("❌ Entrega recusada.", ephemeral=True)
 
         await asyncio.sleep(TEMPO_APAGAR_RECUSADO)
         await msg.delete()
@@ -112,65 +149,47 @@ class EntregaView(View):
 class EntregaModal(Modal):
     def __init__(self, meta, canal_abertos, canal_aceitos, canal_recusados):
         super().__init__(title="Entrega de Farm KORTE")
+
         self.meta = meta
         self.canal_abertos = canal_abertos
         self.canal_aceitos = canal_aceitos
         self.canal_recusados = canal_recusados
 
-        self.quantidade = TextInput(label="Quantidade entregue", required=True)
-        self.entregue_para = TextInput(label="Entregue para quem?", required=True)
-        self.primeiro_farm = TextInput(label="Primeiro farm? (sim/não)", required=True)
+        self.quantidade = TextInput(label="Quantidade entregue")
+        self.primeiro_farm = TextInput(label="Primeiro farm? (sim/não)")
 
         self.add_item(self.quantidade)
-        self.add_item(self.entregue_para)
         self.add_item(self.primeiro_farm)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        try:
-            qtd = int(self.quantidade.value)
-        except ValueError:
-            await interaction.followup.send("❌ Quantidade inválida.", ephemeral=True)
-            return
-
+        qtd = int(self.quantidade.value)
         primeiro = self.primeiro_farm.value.lower() == "sim"
-        meta_concluida = qtd >= self.meta
 
         dados = {
             "quantidade": qtd,
-            "entregue_para": self.entregue_para.value,
             "primeiro_farm": primeiro,
-            "meta_concluida": meta_concluida,
+            "meta_concluida": qtd >= self.meta,
             "faltante": max(self.meta - qtd, 0)
         }
 
         embed = discord.Embed(
-            title="📦 Nova Entrega para Aprovação — KORTE",
+            title="📦 Nova Entrega para Avaliação",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Usuário", value=interaction.user.mention, inline=False)
-        embed.add_field(name="Quantidade", value=str(qtd), inline=True)
-        embed.add_field(name="Primeiro farm", value="Sim" if primeiro else "Não", inline=True)
+        embed.add_field(name="👤 Usuário", value=interaction.user.mention)
+        embed.add_field(name="📦 Quantidade", value=qtd)
+        embed.add_field(name="🆕 Primeiro Farm", value="Sim" if primeiro else "Não")
 
-        view = EntregaView(
-            interaction.user,
-            dados,
-            self.canal_aceitos,
-            self.canal_recusados
-        )
-
+        view = EntregaView(interaction.user, dados, self.canal_aceitos, self.canal_recusados)
         msg = await self.canal_abertos.send(embed=embed, view=view)
         view.mensagem_original = msg
 
-        aviso = await interaction.followup.send(
-            "📨 **Entrega enviada para aprovação da staff (KORTE).**"
-        )
-        await asyncio.sleep(5)
-        await aviso.delete()
+        await interaction.followup.send("📨 Entrega enviada para análise.", ephemeral=True)
 
 
-# ================== VIEW DO PAINEL ==================
+# ================== PAINEL ==================
 class TicketView(View):
     def __init__(self, meta, canal_abertos, canal_aceitos, canal_recusados):
         super().__init__(timeout=None)
@@ -179,15 +198,10 @@ class TicketView(View):
         self.canal_aceitos = canal_aceitos
         self.canal_recusados = canal_recusados
 
-    @discord.ui.button(label="📦 ENTREGAR FARM KORTE", style=discord.ButtonStyle.green)
-    async def entregar(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="📦 ENTREGAR FARM", style=discord.ButtonStyle.green)
+    async def entregar(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(
-            EntregaModal(
-                self.meta,
-                self.canal_abertos,
-                self.canal_aceitos,
-                self.canal_recusados
-            )
+            EntregaModal(self.meta, self.canal_abertos, self.canal_aceitos, self.canal_recusados)
         )
 
 
@@ -198,25 +212,38 @@ class Tickets(commands.Cog):
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
-    async def ticket(
-        self,
-        ctx,
-        meta: int,
-        canal_abertos: discord.TextChannel,
-        canal_aceitos: discord.TextChannel,
-        canal_recusados: discord.TextChannel
-    ):
+    async def ticket(self, ctx, meta: int, canal_abertos: discord.TextChannel,
+                     canal_aceitos: discord.TextChannel, canal_recusados: discord.TextChannel):
+
         embed = discord.Embed(
-            title="🎫 TICKET — ENTREGA DE FARM KORTE",
-            description="Clique no botão abaixo para registrar sua **entrega de farm KORTE**.",
+            title="🎫 ENTREGA DE FARM KORTE",
+            description="Clique no botão abaixo para registrar sua entrega.",
             color=discord.Color.blurple()
         )
 
-        await ctx.send(
-            embed=embed,
-            view=TicketView(meta, canal_abertos, canal_aceitos, canal_recusados)
-        )
+        await ctx.send(embed=embed, view=TicketView(meta, canal_abertos, canal_aceitos, canal_recusados))
         await ctx.message.delete()
+
+    @commands.command()
+    @commands.has_permissions(manage_guild=True)
+    async def historico(self, ctx, membro: discord.Member):
+        historico = carregar_historico()
+        uid = str(membro.id)
+
+        if uid not in historico:
+            await ctx.send("📭 Usuário sem histórico.")
+            return
+
+        h = historico[uid]
+
+        embed = discord.Embed(title="📊 Histórico de Farm", color=discord.Color.gold())
+        embed.add_field(name="👤 Usuário", value=membro.mention, inline=False)
+        embed.add_field(name="📦 Total", value=h["total_entregas"])
+        embed.add_field(name="✅ Aceitos", value=h["aceitos"])
+        embed.add_field(name="❌ Recusados", value=h["recusados"])
+        embed.add_field(name="🆕 Primeiro Farm", value="Sim" if h["primeiro_farm"] else "Não")
+
+        await ctx.send(embed=embed)
 
 
 async def setup(bot):
