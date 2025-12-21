@@ -2,262 +2,173 @@ import discord
 import asyncio
 import json
 import os
-from datetime import datetime
-from discord.ext import commands
+from datetime import datetime, timedelta
+from discord.ext import commands, tasks
 from discord.ui import View, Modal, TextInput
 
-print("🔥 TICKETS.PY KORTE CARREGADO 🔥")
+print("🔥 TICKET.PY FARM FINAL CARREGADO 🔥")
 
-CARGO_INICIAL = "aviãozinho"
-CARGO_FINAL = "membro"
-TEMPO_APAGAR_RECUSADO = 36000  # 10 horas
+# ================= CONFIG =================
+CARGO_IGNORADO = "00"
+LIMITE_ADV = 5
+PASTA_DADOS = "meu_bot_farm/data"
+HISTORICO_FILE = f"{PASTA_DADOS}/historico_farm.json"
+ADV_FILE = f"{PASTA_DADOS}/advs.json"
+SEMANA_FILE = f"{PASTA_DADOS}/semanas.json"
 
-HISTORICO_FILE = "meu_bot_farm/data/historico_farm.json"
+# ================= UTIL =================
+def carregar_json(path, default):
+    os.makedirs(PASTA_DADOS, exist_ok=True)
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(default, f)
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# ================== UTIL ==================
-def salvar_historico(dados):
-    os.makedirs(os.path.dirname(HISTORICO_FILE), exist_ok=True)
+def salvar_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
-    if os.path.exists(HISTORICO_FILE):
-        with open(HISTORICO_FILE, "r", encoding="utf-8") as f:
-            historico = json.load(f)
-    else:
-        historico = []
+def semana_atual():
+    hoje = datetime.now()
+    return hoje.strftime("%Y-%W")
 
-    historico.append(dados)
+# ================= ADV =================
+def add_adv(user_id):
+    advs = carregar_json(ADV_FILE, {})
+    advs[str(user_id)] = advs.get(str(user_id), 0) + 1
+    salvar_json(ADV_FILE, advs)
+    return advs[str(user_id)]
 
-    with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-        json.dump(historico, f, indent=4, ensure_ascii=False)
+def remove_adv(user_id, qtd):
+    advs = carregar_json(ADV_FILE, {})
+    atual = advs.get(str(user_id), 0)
+    advs[str(user_id)] = max(atual - qtd, 0)
+    salvar_json(ADV_FILE, advs)
 
+def get_adv(user_id):
+    advs = carregar_json(ADV_FILE, {})
+    return advs.get(str(user_id), 0)
 
-# ================== VIEW STAFF ==================
+# ================= VIEW =================
 class EntregaView(View):
-    def __init__(self, member, dados, canal_aceitos, canal_recusados):
+    def __init__(self, member, meta, quantidade):
         super().__init__(timeout=None)
         self.member = member
-        self.dados = dados
-        self.canal_aceitos = canal_aceitos
-        self.canal_recusados = canal_recusados
-        self.mensagem_original = None
+        self.meta = meta
+        self.quantidade = quantidade
 
-    def gerar_embed_final(self, promovido):
-        embed = discord.Embed(
-            title="📦 Entrega Avaliada",
-            color=discord.Color.green() if self.dados["meta_concluida"] else discord.Color.orange()
-        )
+    @discord.ui.button(label="✅ Autorizar", style=discord.ButtonStyle.success)
+    async def autorizar(self, interaction: discord.Interaction, _):
+        semanas = carregar_json(SEMANA_FILE, {})
+        historico = carregar_json(HISTORICO_FILE, [])
 
-        embed.add_field(name="👤 Usuário", value=self.member.mention, inline=False)
-        embed.add_field(name="📥 Entregue para", value=self.dados["entregue_para"], inline=False)
-        embed.add_field(name="📦 Quantidade", value=str(self.dados["quantidade"]), inline=True)
-        embed.add_field(
-            name="🆕 Primeiro farm",
-            value="Sim" if self.dados["primeiro_farm"] else "Não",
-            inline=True
-        )
+        semana = semana_atual()
+        semanas.setdefault(str(self.member.id), [])
 
-        if self.dados["meta_concluida"]:
-            embed.add_field(name="🎯 Meta", value="✅ Meta concluída", inline=False)
-        else:
-            embed.add_field(
-                name="🎯 Meta",
-                value=f"⚠️ Faltam **{self.dados['faltante']}**",
-                inline=False
-            )
+        semanas[str(self.member.id)].append(semana)
 
-        if promovido:
-            embed.add_field(
-                name="🔼 Promoção",
-                value=f"{self.member.mention} foi promovido para **membro** 🎉",
-                inline=False
-            )
+        # 🔥 COMPENSAÇÃO AUTOMÁTICA
+        semanas_quitadas = self.quantidade // self.meta
+        adv_removidos = min(semanas_quitadas - 1, get_adv(self.member.id))
 
-        return embed
+        if adv_removidos > 0:
+            remove_adv(self.member.id, adv_removidos)
 
-    @discord.ui.button(label="✅ Autorizar Entrega", style=discord.ButtonStyle.success)
-    async def autorizar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        if self.mensagem_original:
-            await self.mensagem_original.delete()
-
-        guild = interaction.guild
-        promovido = False
-
-        # ===== PROMOÇÃO SEGURA =====
-        if self.dados["primeiro_farm"]:
-            try:
-                cargo_inicial = discord.utils.get(guild.roles, name=CARGO_INICIAL)
-                cargo_final = discord.utils.get(guild.roles, name=CARGO_FINAL)
-
-                if cargo_inicial and cargo_inicial in self.member.roles:
-                    await self.member.remove_roles(cargo_inicial)
-
-                if cargo_final and cargo_final not in self.member.roles:
-                    await self.member.add_roles(cargo_final)
-
-                promovido = True
-            except Exception as e:
-                print(f"[ERRO PROMOÇÃO] {e}")
-
-        embed = self.gerar_embed_final(promovido)
-        await self.canal_aceitos.send(embed=embed)
-
-        salvar_historico({
+        historico.append({
             "usuario": str(self.member),
-            "quantidade": self.dados["quantidade"],
-            "entregue_para": self.dados["entregue_para"],
-            "primeiro_farm": self.dados["primeiro_farm"],
-            "meta_concluida": self.dados["meta_concluida"],
-            "promovido": promovido,
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            "quantidade": self.quantidade,
+            "semanas_quitadas": semanas_quitadas,
+            "adv_removidos": adv_removidos,
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M")
         })
 
-        aviso = await interaction.followup.send("✅ **Entrega autorizada com sucesso.**", ephemeral=True)
-        await asyncio.sleep(5)
-        await aviso.delete()
+        salvar_json(SEMANA_FILE, semanas)
+        salvar_json(HISTORICO_FILE, historico)
 
-        self.stop()
-
-    @discord.ui.button(label="❌ Recusar Entrega", style=discord.ButtonStyle.danger)
-    async def recusar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-
-        if self.mensagem_original:
-            await self.mensagem_original.delete()
-
-        embed = discord.Embed(
-            title="📦 Entrega Recusada",
-            description=f"{self.member.mention} teve a entrega recusada ❌",
-            color=discord.Color.red()
-        )
-
-        msg = await self.canal_recusados.send(embed=embed)
-
-        aviso = await interaction.followup.send("❌ **Entrega recusada.**", ephemeral=True)
-        await asyncio.sleep(5)
-        await aviso.delete()
-
-        await asyncio.sleep(TEMPO_APAGAR_RECUSADO)
-        await msg.delete()
-
-        self.stop()
-
-
-# ================== MODAL ==================
-class EntregaModal(Modal):
-    def __init__(self, meta, canal_abertos, canal_aceitos, canal_recusados):
-        super().__init__(title="Entrega de Farm KORTE")
-
-        self.meta = meta
-        self.canal_abertos = canal_abertos
-        self.canal_aceitos = canal_aceitos
-        self.canal_recusados = canal_recusados
-
-        self.quantidade = TextInput(label="Quantidade entregue", required=True)
-        self.entregue_para = TextInput(label="Entregue para quem?", required=True)
-        self.primeiro_farm = TextInput(label="Primeiro farm? (sim/não)", required=True)
-
-        self.add_item(self.quantidade)
-        self.add_item(self.entregue_para)
-        self.add_item(self.primeiro_farm)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            qtd = int(self.quantidade.value)
-        except ValueError:
-            aviso = await interaction.followup.send("❌ Quantidade inválida.", ephemeral=True)
-            await asyncio.sleep(5)
-            await aviso.delete()
-            return
-
-        primeiro = self.primeiro_farm.value.lower() == "sim"
-        meta_concluida = qtd >= self.meta
-
-        dados = {
-            "quantidade": qtd,
-            "entregue_para": self.entregue_para.value,
-            "primeiro_farm": primeiro,
-            "meta_concluida": meta_concluida,
-            "faltante": max(self.meta - qtd, 0)
-        }
-
-        embed = discord.Embed(
-            title="📦 Nova Entrega para Aprovação — KORTE",
-            color=discord.Color.orange()
-        )
-        embed.add_field(name="👤 Usuário", value=interaction.user.mention, inline=False)
-        embed.add_field(name="📥 Entregue para", value=self.entregue_para.value, inline=False)
-        embed.add_field(name="📦 Quantidade", value=str(qtd), inline=True)
-        embed.add_field(name="🆕 Primeiro farm", value="Sim" if primeiro else "Não", inline=True)
-
-        view = EntregaView(
-            interaction.user,
-            dados,
-            self.canal_aceitos,
-            self.canal_recusados
-        )
-
-        msg = await self.canal_abertos.send(embed=embed, view=view)
-        view.mensagem_original = msg
-
-        aviso = await interaction.followup.send(
-            "📨 **Entrega enviada para análise da staff.**",
+        await interaction.response.send_message(
+            f"✅ Entrega aprovada\n"
+            f"Semanas quitadas: {semanas_quitadas}\n"
+            f"ADV removidos: {adv_removidos}",
             ephemeral=True
         )
-        await asyncio.sleep(5)
-        await aviso.delete()
 
-
-# ================== PAINEL ==================
-class TicketView(View):
-    def __init__(self, meta, canal_abertos, canal_aceitos, canal_recusados):
-        super().__init__(timeout=None)
+# ================= MODAL =================
+class EntregaModal(Modal):
+    def __init__(self, meta):
+        super().__init__(title="Entrega de Farm")
         self.meta = meta
-        self.canal_abertos = canal_abertos
-        self.canal_aceitos = canal_aceitos
-        self.canal_recusados = canal_recusados
+        self.quantidade = TextInput(label="Quantidade entregue", required=True)
+        self.add_item(self.quantidade)
 
-    @discord.ui.button(label="📦 ENTREGAR FARM KORTE", style=discord.ButtonStyle.green)
-    async def entregar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(
-            EntregaModal(
-                self.meta,
-                self.canal_abertos,
-                self.canal_aceitos,
-                self.canal_recusados
+    async def on_submit(self, interaction: discord.Interaction):
+        qtd = int(self.quantidade.value)
+
+        semanas = carregar_json(SEMANA_FILE, {})
+        if semana_atual() in semanas.get(str(interaction.user.id), []):
+            return await interaction.response.send_message(
+                "❌ Você já entregou nesta semana.", ephemeral=True
             )
+
+        embed = discord.Embed(
+            title="📦 Nova entrega",
+            description=f"Quantidade: **{qtd}**",
+            color=discord.Color.orange()
         )
 
+        await interaction.channel.send(
+            embed=embed,
+            view=EntregaView(interaction.user, self.meta, qtd)
+        )
+        await interaction.response.send_message("📨 Enviado para análise.", ephemeral=True)
 
-# ================== COG ==================
+# ================= PAINEL =================
+class TicketView(View):
+    def __init__(self, meta):
+        super().__init__(timeout=None)
+        self.meta = meta
+
+    @discord.ui.button(label="📦 ENTREGAR FARM", style=discord.ButtonStyle.green)
+    async def entregar(self, interaction: discord.Interaction, _):
+        await interaction.response.send_modal(EntregaModal(self.meta))
+
+# ================= COG =================
 class Tickets(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.verificar_semana.start()
+
+    @tasks.loop(hours=24)
+    async def verificar_semana(self):
+        if datetime.now().weekday() != 6:
+            return
+
+        semanas = carregar_json(SEMANA_FILE, {})
+        advs = carregar_json(ADV_FILE, {})
+
+        for guild in self.bot.guilds:
+            for member in guild.members:
+                if any(r.name == CARGO_IGNORADO for r in member.roles):
+                    continue
+
+                if semana_atual() not in semanas.get(str(member.id), []):
+                    adv = add_adv(member.id)
+                    if adv >= LIMITE_ADV:
+                        await member.kick(reason="5 ADV por falta de farm")
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
-    async def ticket(
-        self,
-        ctx,
-        meta: int,
-        canal_abertos: discord.TextChannel,
-        canal_aceitos: discord.TextChannel,
-        canal_recusados: discord.TextChannel
-    ):
+    async def ticket(self, ctx, meta: int):
         embed = discord.Embed(
-            title="🎫 TICKET — ENTREGA DE FARM KORTE",
-            description="Clique no botão abaixo para registrar sua entrega de farm KORTE.",
+            title="🎫 ENTREGA DE FARM",
+            description="Clique no botão abaixo para entregar seu farm.",
             color=discord.Color.blurple()
         )
 
-        await ctx.send(
-            embed=embed,
-            view=TicketView(meta, canal_abertos, canal_aceitos, canal_recusados)
-        )
-        await ctx.message.delete()
+        embed.set_image(url="https://cdn.discordapp.com/attachments/1266573285236408363/1452153715912867901/VID-20251221-WA0034.mp4?ex=6948c709&is=69477589&hm=0c112f4a9dae1455e368d02bba1b52ac2c0d30c3763184a60b21992fdb9fb54d&")
 
+        await ctx.send(embed=embed, view=TicketView(meta))
+        await ctx.message.delete()
 
 async def setup(bot):
     await bot.add_cog(Tickets(bot))
