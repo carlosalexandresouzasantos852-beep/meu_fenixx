@@ -22,7 +22,7 @@ CONFIG_FILE = f"{PASTA_DADOS}/config.json"
 LISTA_FILE = f"{PASTA_DADOS}/lista_membros.json"
 
 # GIF do painel (substitua pelo seu link direto de GIF animado)
-GIF_PAINEL = "https://cdn.discordapp.com/attachments/.../seu_gif.gif"
+GIF_PAINEL = "https://cdn.discordapp.com/attachments/1266573285236408363/1452178207255040082/Adobe_Express_-_VID-20251221-WA0034.gif?ex=6948ddd8&is=69478c58&hm=0a5325a5c72e9b3da44503be75b21de4b991db2f5155452a3a42c14cf8f89ca0&"
 
 # ================= FUNÇÕES ÚTEIS =================
 def carregar_json(path, default):
@@ -212,7 +212,7 @@ class Tickets(commands.Cog):
     @commands.has_permissions(manage_guild=True)
     async def ticket(self, ctx, meta: int, canal_aceitos: discord.TextChannel, canal_recusados: discord.TextChannel):
         embed = discord.Embed(
-            title="🎫 ENTREGA DE FARM – Corte",
+            title="🎫 ENTREGA DE FARM – Korte",
             description="Clique no botão abaixo para entregar o farm.",
             color=discord.Color.blurple()
         )
