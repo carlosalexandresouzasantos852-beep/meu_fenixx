@@ -2,19 +2,22 @@ import discord
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from discord.ext import commands, tasks
 from discord.ui import View, Modal, TextInput
 
-print("🔥 TICKET.PY FARM FINAL CARREGADO 🔥")
+print("🔥 SISTEMA DE FARM CARREGADO 🔥")
 
 # ================= CONFIG =================
 CARGO_IGNORADO = "00"
 LIMITE_ADV = 5
 PASTA_DADOS = "meu_bot_farm/data"
+
 HISTORICO_FILE = f"{PASTA_DADOS}/historico_farm.json"
 ADV_FILE = f"{PASTA_DADOS}/advs.json"
 SEMANA_FILE = f"{PASTA_DADOS}/semanas.json"
+
+GIF_PAINEL = "https://cdn.discordapp.com/attachments/1266573285236408363/1452153715912867901/VID-20251221-WA0034.mp4?ex=6948c709&is=69477589&hm=0c112f4a9dae1455e368d02bba1b52ac2c0d30c3763184a60b21992fdb9fb54d&"
 
 # ================= UTIL =================
 def carregar_json(path, default):
@@ -30,8 +33,7 @@ def salvar_json(path, data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 def semana_atual():
-    hoje = datetime.now()
-    return hoje.strftime("%Y-%W")
+    return datetime.now().strftime("%Y-%W")
 
 # ================= ADV =================
 def add_adv(user_id):
@@ -58,20 +60,21 @@ class EntregaView(View):
         self.meta = meta
         self.quantidade = quantidade
 
-    @discord.ui.button(label="✅ Autorizar", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ AUTORIZAR ENTREGA", style=discord.ButtonStyle.success)
     async def autorizar(self, interaction: discord.Interaction, _):
         semanas = carregar_json(SEMANA_FILE, {})
         historico = carregar_json(HISTORICO_FILE, [])
 
-        semana = semana_atual()
         semanas.setdefault(str(self.member.id), [])
 
-        semanas[str(self.member.id)].append(semana)
+        # quantas semanas foram quitadas
+        semanas_quitadas = self.quantidade // self.meta
+
+        for _ in range(semanas_quitadas):
+            semanas[str(self.member.id)].append(semana_atual())
 
         # 🔥 COMPENSAÇÃO AUTOMÁTICA
-        semanas_quitadas = self.quantidade // self.meta
         adv_removidos = min(semanas_quitadas - 1, get_adv(self.member.id))
-
         if adv_removidos > 0:
             remove_adv(self.member.id, adv_removidos)
 
@@ -87,9 +90,9 @@ class EntregaView(View):
         salvar_json(HISTORICO_FILE, historico)
 
         await interaction.response.send_message(
-            f"✅ Entrega aprovada\n"
-            f"Semanas quitadas: {semanas_quitadas}\n"
-            f"ADV removidos: {adv_removidos}",
+            f"✅ **Entrega aprovada**\n"
+            f"📆 Semanas quitadas: **{semanas_quitadas}**\n"
+            f"⚠ ADV removidos: **{adv_removidos}**",
             ephemeral=True
         )
 
@@ -102,7 +105,12 @@ class EntregaModal(Modal):
         self.add_item(self.quantidade)
 
     async def on_submit(self, interaction: discord.Interaction):
-        qtd = int(self.quantidade.value)
+        try:
+            qtd = int(self.quantidade.value)
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Quantidade inválida.", ephemeral=True
+            )
 
         semanas = carregar_json(SEMANA_FILE, {})
         if semana_atual() in semanas.get(str(interaction.user.id), []):
@@ -111,8 +119,8 @@ class EntregaModal(Modal):
             )
 
         embed = discord.Embed(
-            title="📦 Nova entrega",
-            description=f"Quantidade: **{qtd}**",
+            title="📦 NOVA ENTREGA",
+            description=f"👤 {interaction.user.mention}\n📦 Quantidade: **{qtd}**",
             color=discord.Color.orange()
         )
 
@@ -120,7 +128,11 @@ class EntregaModal(Modal):
             embed=embed,
             view=EntregaView(interaction.user, self.meta, qtd)
         )
-        await interaction.response.send_message("📨 Enviado para análise.", ephemeral=True)
+
+        await interaction.response.send_message(
+            "📨 Entrega enviada para análise da staff.",
+            ephemeral=True
+        )
 
 # ================= PAINEL =================
 class TicketView(View):
@@ -140,7 +152,7 @@ class Tickets(commands.Cog):
 
     @tasks.loop(hours=24)
     async def verificar_semana(self):
-        if datetime.now().weekday() != 6:
+        if datetime.now().weekday() != 6:  # Domingo
             return
 
         semanas = carregar_json(SEMANA_FILE, {})
@@ -165,7 +177,7 @@ class Tickets(commands.Cog):
             color=discord.Color.blurple()
         )
 
-        embed.set_image(url="https://cdn.discordapp.com/attachments/1266573285236408363/1452153715912867901/VID-20251221-WA0034.mp4?ex=6948c709&is=69477589&hm=0c112f4a9dae1455e368d02bba1b52ac2c0d30c3763184a60b21992fdb9fb54d&")
+        embed.set_image(url=GIF_PAINEL)
 
         await ctx.send(embed=embed, view=TicketView(meta))
         await ctx.message.delete()
