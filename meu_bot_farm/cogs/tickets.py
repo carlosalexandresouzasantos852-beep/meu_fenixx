@@ -60,16 +60,14 @@ class AnaliseView(View):
         entregas[str(self.user.id)] = total
 
         embed = interaction.message.embeds[0]
-        embed.set_field_at(4, "📊 Status da Meta", "✅ Meta concluída", inline=False)
+        embed.set_field_at(4, name="📊 Status da Meta", value="✅ Meta concluída", inline=False)
 
         # Remoção automática de ADV por compensação
         if str(self.user.id) in advs and total >= self.meta * 2:
             advs.pop(str(self.user.id))
-            canal_adv = interaction.guild.get_channel(self.canal_adv)
-            if canal_adv:
-                msg = await canal_adv.send(
-                    f"🔄 ADV removido por compensação — {self.user.mention}"
-                )
+            canal = interaction.guild.get_channel(self.canal_adv)
+            if canal:
+                msg = await canal.send(f"🔄 ADV removido por compensação — {self.user.mention}")
                 await asyncio.sleep(10)
                 await msg.delete()
 
@@ -86,7 +84,7 @@ class AnaliseView(View):
     @discord.ui.button(label="❌ RECUSAR", style=discord.ButtonStyle.danger)
     async def recusar(self, interaction: discord.Interaction, _):
         embed = interaction.message.embeds[0]
-        embed.set_field_at(4, "📊 Status da Meta", "❌ Entrega recusada", inline=False)
+        embed.set_field_at(4, name="📊 Status da Meta", value="❌ Entrega recusada", inline=False)
 
         canal = interaction.guild.get_channel(self.canal_recusados)
         if canal:
@@ -113,23 +111,22 @@ class EntregaModal(Modal):
         self.add_item(self.data)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()  # FECHA O MODAL CORRETAMENTE
+        await interaction.response.defer()  # Fecha o modal corretamente
 
         try:
             qtd = int(self.qtd.value)
         except:
-            return
+            return await interaction.followup.send("Quantidade inválida.", ephemeral=True)
 
         if qtd >= META_SEMANAL:
-            status = "🕒 Aguardando análise (meta atingida)"
+            status = "✅ Meta concluída"
         else:
-            status = f"🕒 Aguardando análise — faltam {META_SEMANAL - qtd}"
+            status = f"🕒 Faltam {META_SEMANAL - qtd} para a meta"
 
         embed = discord.Embed(
             title="📦 ENTREGA DE FARM – KORTE",
             color=discord.Color.orange()
         )
-
         embed.add_field(name="👤 Quem entregou", value=interaction.user.mention, inline=False)
         embed.add_field(name="📦 Quantidade", value=str(qtd), inline=False)
         embed.add_field(name="📍 Entregou para", value=self.para.value, inline=False)
@@ -150,8 +147,9 @@ class EntregaModal(Modal):
                 )
             )
 
-        msg = await interaction.channel.send(
-            f"{interaction.user.mention}, sua entrega foi enviada para análise da **Staff KORTE**."
+        msg = await interaction.followup.send(
+            f"{interaction.user.mention}, sua entrega foi enviada para análise da **Staff KORTE**.",
+            ephemeral=True
         )
         await asyncio.sleep(30)
         await msg.delete()
@@ -243,7 +241,9 @@ class KorteFarm(commands.Cog):
                 if str(member.id) not in entregas:
                     advs[str(member.id)] = advs.get(str(member.id), 0) + 1
                     if canal_adv:
-                        await canal_adv.send(f"⚠️ ADV aplicado — {member.mention}")
+                        msg = await canal_adv.send(f"⚠️ ADV aplicado — {member.mention}")
+                        await asyncio.sleep(10)
+                        await msg.delete()
 
                     if advs[str(member.id)] >= MAX_ADV:
                         await member.kick(reason="5 advertências acumuladas")

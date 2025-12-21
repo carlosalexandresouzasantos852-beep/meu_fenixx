@@ -1,31 +1,28 @@
 import discord
 from discord.ext import commands
-from meu_bot_farm.config import BOT_PREFIX
-from meu_bot_farm.utils.logger import setup_logger
+import os
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-bot = commands.Bot(command_prefix=BOT_PREFIX, intents=intents)
-
-logger = setup_logger()
-
-EXTENSIONS = [
-    "meu_bot_farm.cogs.tickets",
-    "meu_bot_farm.cogs.farm",
-    "meu_bot_farm.cogs.cargos",
-]
-
-@bot.event
-async def setup_hook():
-    for ext in EXTENSIONS:
+# Carregar cogs
+async def load_cogs():
+    for cog in ["meu_bot_farm.cogs.farm"]:
         try:
-            await bot.load_extension(ext)
-            logger.info(f"Cog carregado: {ext}")
+            await bot.load_extension(cog)
+            print(f"[INFO] Cog carregado: {cog}")
         except Exception as e:
-            logger.error(f"Erro ao carregar {ext}: {e}")
+            print(f"[ERRO] Falha ao carregar {cog}: {e}")
 
 @bot.event
 async def on_ready():
-    logger.info(f"Bot ON como {bot.user} (ID: {bot.user.id})")
+    print(f"[INFO] Bot ON como {bot.user} (ID: {bot.user.id})")
+
+# Rodar cogs
+@bot.event
+async def setup_hook():
+    await load_cogs()
+
+# Rodar bot
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
