@@ -1,5 +1,7 @@
-# BOT FARM KORTE — FINAL
-# Python 3.11 | discord.py 2.4+
+# =========================================================
+# BOT FARM KORTE — AUTOMÁTICO
+# Python 3.11+ | discord.py 2.4+
+# =========================================================
 
 import discord
 import asyncio
@@ -10,14 +12,21 @@ from discord.ext import commands, tasks
 from discord.ui import View, Modal, TextInput
 
 # ================== CONFIG ==================
+META_SEMANAL = 1500
 MAX_ADV = 5
-PASTA = "meu_bot_farm/data"
-GIF_PAINEL = "https://cdn.discordapp.com/attachments/1266573285236408363/1452178207255040082/Adobe_Express_-_VID-20251221-WA0034.gif"
 
+PASTA = "meu_bot_farm/data"
 os.makedirs(PASTA, exist_ok=True)
 
 ENTREGAS_FILE = f"{PASTA}/entregas.json"
 ADV_FILE = f"{PASTA}/advs.json"
+
+GIF_PAINEL = "https://cdn.discordapp.com/attachments/1266573285236408363/1452178207255040082/Adobe_Express_-_VID-20251221-WA0034.gif"
+
+CARGOS_VALIDOS = [
+    "gerente geral", "gerente de elite", "gerente de recrutamento",
+    "gerente de farm", "elite", "recrutador", "membro", "aviãozinho"
+]
 
 # ================== JSON ==================
 def load_json(path, default):
@@ -33,12 +42,13 @@ def save_json(path, data):
 
 # ================== VIEW DE ANÁLISE ==================
 class AnaliseView(View):
-    def __init__(self, user, qtd, meta, canal_aceitos, canal_adv):
+    def __init__(self, user, qtd, meta, canal_aceitos, canal_recusados, canal_adv):
         super().__init__(timeout=None)
         self.user = user
         self.qtd = qtd
         self.meta = meta
         self.canal_aceitos = canal_aceitos
+        self.canal_recusados = canal_recusados
         self.canal_adv = canal_adv
 
     @discord.ui.button(label="✅ ACEITAR", style=discord.ButtonStyle.success)
@@ -46,31 +56,26 @@ class AnaliseView(View):
         entregas = load_json(ENTREGAS_FILE, {})
         advs = load_json(ADV_FILE, {})
 
-        entregas[str(self.user.id)] = entregas.get(str(self.user.id), 0) + self.qtd
+        total = entregas.get(str(self.user.id), 0) + self.qtd
+        entregas[str(self.user.id)] = total
 
-        # Embed aprovado
         embed = interaction.message.embeds[0]
-        embed.set_field_at(
-            index=4,
-            name="📊 Status da Meta",
-            value="✅ Meta concluída",
-            inline=False
-        )
+        embed.set_field_at(4, "📊 Status da Meta", "✅ Meta concluída", inline=False)
 
-        canal = interaction.guild.get_channel(self.canal_aceitos)
-        if canal:
-            await canal.send(embed=embed)
-
-        # Remoção de ADV por compensação
-        if str(self.user.id) in advs and entregas[str(self.user.id)] >= self.meta * 2:
+        # Remoção automática de ADV por compensação
+        if str(self.user.id) in advs and total >= self.meta * 2:
             advs.pop(str(self.user.id))
-            adv_canal = interaction.guild.get_channel(self.canal_adv)
-            if adv_canal:
-                msg = await adv_canal.send(
+            canal_adv = interaction.guild.get_channel(self.canal_adv)
+            if canal_adv:
+                msg = await canal_adv.send(
                     f"🔄 ADV removido por compensação — {self.user.mention}"
                 )
                 await asyncio.sleep(10)
                 await msg.delete()
+
+        canal = interaction.guild.get_channel(self.canal_aceitos)
+        if canal:
+            await canal.send(embed=embed)
 
         save_json(ENTREGAS_FILE, entregas)
         save_json(ADV_FILE, advs)
@@ -78,14 +83,26 @@ class AnaliseView(View):
         await interaction.message.delete()
         await interaction.response.send_message("Entrega aceita.", ephemeral=True)
 
+    @discord.ui.button(label="❌ RECUSAR", style=discord.ButtonStyle.danger)
+    async def recusar(self, interaction: discord.Interaction, _):
+        embed = interaction.message.embeds[0]
+        embed.set_field_at(4, "📊 Status da Meta", "❌ Entrega recusada", inline=False)
+
+        canal = interaction.guild.get_channel(self.canal_recusados)
+        if canal:
+            await canal.send(embed=embed)
+
+        await interaction.message.delete()
+        await interaction.response.send_message("Entrega recusada.", ephemeral=True)
+
 # ================== MODAL ==================
 class EntregaModal(Modal):
-    def __init__(self, canal_analise, canal_aceitos, canal_adv, meta):
+    def __init__(self, canal_analise, canal_aceitos, canal_recusados, canal_adv):
         super().__init__(title="Entrega de Farm – KORTE")
         self.canal_analise = canal_analise
         self.canal_aceitos = canal_aceitos
+        self.canal_recusados = canal_recusados
         self.canal_adv = canal_adv
-        self.meta = meta
 
         self.qtd = TextInput(label="Quantidade entregue", required=True)
         self.para = TextInput(label="Entregou para quem?", required=True)
@@ -96,16 +113,17 @@ class EntregaModal(Modal):
         self.add_item(self.data)
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()  # FECHA O MODAL CORRETAMENTE
+
         try:
             qtd = int(self.qtd.value)
         except:
             return
 
-        if qtd >= self.meta:
-            status = "✅ Meta concluída"
+        if qtd >= META_SEMANAL:
+            status = "🕒 Aguardando análise (meta atingida)"
         else:
-            falta = self.meta - qtd
-            status = f"❌ Meta incompleta — faltam {falta}"
+            status = f"🕒 Aguardando análise — faltam {META_SEMANAL - qtd}"
 
         embed = discord.Embed(
             title="📦 ENTREGA DE FARM – KORTE",
@@ -125,8 +143,9 @@ class EntregaModal(Modal):
                 view=AnaliseView(
                     interaction.user,
                     qtd,
-                    self.meta,
+                    META_SEMANAL,
                     self.canal_aceitos,
+                    self.canal_recusados,
                     self.canal_adv
                 )
             )
@@ -139,12 +158,12 @@ class EntregaModal(Modal):
 
 # ================== PAINEL ==================
 class PainelView(View):
-    def __init__(self, canal_analise, canal_aceitos, canal_adv, meta):
+    def __init__(self, canal_analise, canal_aceitos, canal_recusados, canal_adv):
         super().__init__(timeout=None)
         self.canal_analise = canal_analise
         self.canal_aceitos = canal_aceitos
+        self.canal_recusados = canal_recusados
         self.canal_adv = canal_adv
-        self.meta = meta
 
     @discord.ui.button(label="📦 ENTREGAR FARM", style=discord.ButtonStyle.green)
     async def entregar(self, interaction: discord.Interaction, _):
@@ -152,8 +171,8 @@ class PainelView(View):
             EntregaModal(
                 self.canal_analise,
                 self.canal_aceitos,
-                self.canal_adv,
-                self.meta
+                self.canal_recusados,
+                self.canal_adv
             )
         )
 
@@ -161,20 +180,21 @@ class PainelView(View):
 class KorteFarm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.analise_semanal.start()
+        self.reset_semanal.start()
 
     @commands.command()
     @commands.has_permissions(manage_guild=True)
     async def ticket(
         self,
         ctx,
-        meta: int,
         canal_analise: discord.TextChannel,
         canal_aceitos: discord.TextChannel,
         canal_recusados: discord.TextChannel,
         canal_adv: discord.TextChannel
     ):
         embed = discord.Embed(
-            title="🎫 ENTREGA DE FARM – KORTE",
+            title="📦 ENTREGA DE FARM – KORTE",
             description="Clique no botão abaixo para entregar seu farming.",
             color=discord.Color.blurple()
         )
@@ -185,11 +205,56 @@ class KorteFarm(commands.Cog):
             view=PainelView(
                 canal_analise.id,
                 canal_aceitos.id,
-                canal_adv.id,
-                meta
+                canal_recusados.id,
+                canal_adv.id
             )
         )
         await ctx.message.delete()
+
+    @commands.command(name="advfarm")
+    async def advfarm(self, ctx):
+        advs = load_json(ADV_FILE, {})
+        if not advs:
+            return await ctx.send("✅ Nenhuma advertência ativa.")
+        texto = "\n".join([f"<@{u}> — {q} ADV" for u, q in advs.items()])
+        await ctx.send(f"⚠️ **Advertências registradas:**\n{texto}")
+
+    # ================== TASKS ==================
+    @tasks.loop(hours=24)
+    async def analise_semanal(self):
+        if datetime.now().weekday() != 5:  # SÁBADO
+            return
+
+        for guild in self.bot.guilds:
+            entregas = load_json(ENTREGAS_FILE, {})
+            advs = load_json(ADV_FILE, {})
+
+            canal_adv = next(
+                (c for c in guild.text_channels if "adv" in c.name.lower()),
+                None
+            )
+
+            for member in guild.members:
+                if member.bot:
+                    continue
+                if not any(r.name.lower() in CARGOS_VALIDOS for r in member.roles):
+                    continue
+
+                if str(member.id) not in entregas:
+                    advs[str(member.id)] = advs.get(str(member.id), 0) + 1
+                    if canal_adv:
+                        await canal_adv.send(f"⚠️ ADV aplicado — {member.mention}")
+
+                    if advs[str(member.id)] >= MAX_ADV:
+                        await member.kick(reason="5 advertências acumuladas")
+
+            save_json(ADV_FILE, advs)
+
+    @tasks.loop(hours=24)
+    async def reset_semanal(self):
+        if datetime.now().weekday() != 0:  # SEGUNDA
+            return
+        save_json(ENTREGAS_FILE, {})
 
 # ================== SETUP ==================
 async def setup(bot):
