@@ -12,6 +12,7 @@ from discord.ext import commands, tasks
 from discord.ui import View, Modal, TextInput
 
 # ================== CONFIG ==================
+META_SEMANAL = 1500
 MAX_ADV = 5
 
 PASTA = "meu_bot_farm/data"
@@ -59,7 +60,7 @@ class AnaliseView(View):
         entregas[str(self.user.id)] = total
 
         embed = interaction.message.embeds[0]
-        embed.set_field_at(4, name="📊 Status da Meta", value="✅ Meta concluída" if total >= self.meta else f"🕒 Faltam {self.meta - total}", inline=False)
+        embed.set_field_at(4, name="📊 Status da Meta", value="✅ Meta concluída", inline=False)
 
         # Remoção automática de ADV por compensação
         if str(self.user.id) in advs and total >= self.meta * 2:
@@ -94,9 +95,8 @@ class AnaliseView(View):
 
 # ================== MODAL ==================
 class EntregaModal(Modal):
-    def __init__(self, meta, canal_analise, canal_aceitos, canal_recusados, canal_adv):
+    def __init__(self, canal_analise, canal_aceitos, canal_recusados, canal_adv):
         super().__init__(title="Entrega de Farm – KORTE")
-        self.meta = meta
         self.canal_analise = canal_analise
         self.canal_aceitos = canal_aceitos
         self.canal_recusados = canal_recusados
@@ -118,10 +118,10 @@ class EntregaModal(Modal):
         except:
             return await interaction.followup.send("Quantidade inválida.", ephemeral=True)
 
-        if qtd >= self.meta:
+        if qtd >= META_SEMANAL:
             status = "✅ Meta concluída"
         else:
-            status = f"🕒 Faltam {self.meta - qtd} para a meta"
+            status = f"🕒 Faltam {META_SEMANAL - qtd} para a meta"
 
         embed = discord.Embed(
             title="📦 ENTREGA DE FARM – KORTE",
@@ -140,7 +140,7 @@ class EntregaModal(Modal):
                 view=AnaliseView(
                     interaction.user,
                     qtd,
-                    self.meta,
+                    META_SEMANAL,
                     self.canal_aceitos,
                     self.canal_recusados,
                     self.canal_adv
@@ -156,9 +156,8 @@ class EntregaModal(Modal):
 
 # ================== PAINEL ==================
 class PainelView(View):
-    def __init__(self, meta, canal_analise, canal_aceitos, canal_recusados, canal_adv):
+    def __init__(self, canal_analise, canal_aceitos, canal_recusados, canal_adv):
         super().__init__(timeout=None)
-        self.meta = meta
         self.canal_analise = canal_analise
         self.canal_aceitos = canal_aceitos
         self.canal_recusados = canal_recusados
@@ -168,7 +167,6 @@ class PainelView(View):
     async def entregar(self, interaction: discord.Interaction, _):
         await interaction.response.send_modal(
             EntregaModal(
-                self.meta,
                 self.canal_analise,
                 self.canal_aceitos,
                 self.canal_recusados,
@@ -186,6 +184,9 @@ class KorteFarm(commands.Cog):
     @commands.command()
     @commands.has_permissions(manage_guild=True)
     async def ticket(self, ctx, meta: int, canal_analise: discord.TextChannel, canal_aceitos: discord.TextChannel, canal_recusados: discord.TextChannel, canal_adv: discord.TextChannel):
+        global META_SEMANAL
+        META_SEMANAL = meta  # Atualiza a meta semanal
+
         embed = discord.Embed(
             title="📦 ENTREGA DE FARM – KORTE",
             description="Clique no botão abaixo para entregar seu farming.",
@@ -196,7 +197,6 @@ class KorteFarm(commands.Cog):
         await ctx.send(
             embed=embed,
             view=PainelView(
-                meta,
                 canal_analise.id,
                 canal_aceitos.id,
                 canal_recusados.id,
