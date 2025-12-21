@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+meu_bot_farm/data/*.json
+.env
