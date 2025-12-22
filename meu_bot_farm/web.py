@@ -1,15 +1,17 @@
+# web.py
 from flask import Flask
-import threading
+from threading import Thread
 
-app = Flask('')
+app = Flask("")
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "Bot online!"
+    return "Bot online! 🔥"
 
 def run():
-    app.run(host='0.0.0.0', port=3000)
+    app.run(host="0.0.0.0", port=10000)
 
 def keep_alive():
-    t = threading.Thread(target=run)
+    # Executa o servidor Flask em uma thread separada
+    t = Thread(target=run)
     t.start()

@@ -1,14 +1,11 @@
 import aiosqlite
 from config import DB_PATH
 
-
 async def connect_db():
     return await aiosqlite.connect(DB_PATH)
 
-
 async def setup_tables():
     db = await connect_db()
-
     await db.execute("""
         CREATE TABLE IF NOT EXISTS farm_entregas (
             user_id INTEGER,
@@ -16,6 +13,5 @@ async def setup_tables():
             meta INTEGER DEFAULT 100
         )
     """)
-
     await db.commit()
     await db.close()

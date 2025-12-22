@@ -1,28 +1,30 @@
+import os
 import discord
 from discord.ext import commands
-import os
+from config import BOT_PREFIX, TOKEN
+from utils.logger import setup_logger
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+def start_bot():
+    setup_logger()
 
-# Carregar cogs
-async def load_cogs():
-    for cog in ["meu_bot_farm.cogs.farm"]:
-        try:
-            await bot.load_extension(cog)
-            print(f"[INFO] Cog carregado: {cog}")
-        except Exception as e:
-            print(f"[ERRO] Falha ao carregar {cog}: {e}")
+    intents = discord.Intents.default()
+    intents.members = True
+    intents.message_content = True
 
-@bot.event
-async def on_ready():
-    print(f"[INFO] Bot ON como {bot.user} (ID: {bot.user.id})")
+    bot = commands.Bot(command_prefix=BOT_PREFIX, intents=intents)
 
-# Rodar cogs
-@bot.event
-async def setup_hook():
-    await load_cogs()
+    # Carregar extensões
+    EXTENSIONS = [
+        "cogs.tickets",
+        "cogs.farm",
+        "cogs.cargos"
+    ]
 
-# Rodar bot
-TOKEN = os.getenv("DISCORD_TOKEN")
-bot.run(TOKEN)
+    for ext in EXTENSIONS:
+        bot.load_extension(ext)
+
+    @bot.event
+    async def on_ready():
+        print(f"Bot online como {bot.user} (ID: {bot.user.id})")
+
+    bot.run(TOKEN)
